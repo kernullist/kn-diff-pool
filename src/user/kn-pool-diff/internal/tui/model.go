@@ -185,14 +185,7 @@ func NewModel() Model {
 
 	cfg, cfgPath, cfgErr := appconfig.Load()
 	driverPath := paths.DefaultDriverPath()
-	if strings.TrimSpace(cfg.DriverPath) != "" {
-		driverPath = paths.Resolve(cfg.DriverPath)
-	}
-
 	exportDir := exporter.DefaultDir()
-	if strings.TrimSpace(cfg.ExportDir) != "" {
-		exportDir = paths.Resolve(cfg.ExportDir)
-	}
 
 	searchTarget := protocol.SearchTargetDiff
 	if cfg.SearchTarget == protocol.SearchTargetCurrent {
@@ -2020,8 +2013,6 @@ func validSortMode(value int, legacySizeSort int) int {
 
 func (m *Model) persistConfig() {
 	state := appconfig.State{
-		DriverPath:       m.driverPath,
-		ExportDir:        m.exportDir,
 		SearchTarget:     m.searchTarget,
 		FilterTag:        m.filterTag,
 		FilterWritable:   int(m.filterWritable),

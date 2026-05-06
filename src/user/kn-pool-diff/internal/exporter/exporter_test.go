@@ -2,6 +2,7 @@ package exporter
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,5 +76,40 @@ func TestSaveDumpWritesBinaryAndMetadata(t *testing.T) {
 	}
 	if _, err := os.Stat(strings.TrimSuffix(path, ".bin") + ".json"); err != nil {
 		t.Fatalf("dump metadata missing: %v", err)
+	}
+}
+
+func TestDefaultDirUsesExecutableDirectory(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "kn-pool-diff.exe")
+	defer setExecutablePathForTest(func() (string, error) {
+		return exe, nil
+	})()
+
+	want := filepath.Join(filepath.Dir(exe), "exports")
+	if got := DefaultDir(); got != want {
+		t.Fatalf("default export dir mismatch: got %q, want %q", got, want)
+	}
+}
+
+func TestDefaultDirFallsBackToCurrentDirectory(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd returned error: %v", err)
+	}
+	defer setExecutablePathForTest(func() (string, error) {
+		return "", errors.New("no executable")
+	})()
+
+	want := filepath.Join(cwd, "exports")
+	if got := DefaultDir(); got != want {
+		t.Fatalf("fallback export dir mismatch: got %q, want %q", got, want)
+	}
+}
+
+func setExecutablePathForTest(fn func() (string, error)) func() {
+	previous := executablePath
+	executablePath = fn
+	return func() {
+		executablePath = previous
 	}
 }

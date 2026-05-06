@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"kn-diff-pool/kn-pool-diff/internal/protocol"
 )
+
+var executablePath = os.Executable
 
 type Analysis struct {
 	CreatedAt      time.Time               `json:"created_at"`
@@ -172,10 +175,15 @@ func entryRecord(kind string, entry protocol.Entry, offset uint64) []string {
 }
 
 func DefaultDir() string {
+	if exe, err := executablePath(); err == nil && strings.TrimSpace(exe) != "" {
+		return filepath.Join(filepath.Dir(exe), "exports")
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "exports"
 	}
+
 	return filepath.Join(cwd, "exports")
 }
 
