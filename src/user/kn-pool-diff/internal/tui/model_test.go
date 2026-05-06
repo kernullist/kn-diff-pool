@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -444,7 +446,7 @@ func TestRenderHelpShowsAnalysisAfterDiff(t *testing.T) {
 	model.diff = []protocol.Entry{{Address: 0x1000, Size: 0x1000, PageCount: 1}}
 
 	help := renderHelp(model)
-	for _, visible := range []string{"[c]", "[l]", "[tab]", "[up/down]", "[enter/x]", "[d]", "[/]", "[f]", "[w/e/a]", "[o]", "[r]"} {
+	for _, visible := range []string{"[c]", "[l]", "[tab]", "[up/down]", "[enter/x]", "[p]", "[d]", "[/]", "[f]", "[w/e/a]", "[o]", "[r]"} {
 		if !strings.Contains(help, visible) {
 			t.Fatalf("command %q should be visible after diff is ready:\n%s", visible, help)
 		}
@@ -506,6 +508,89 @@ func TestEnterDumpsSelectedPool(t *testing.T) {
 	_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
 		t.Fatalf("expected enter to dump the selected pool")
+	}
+}
+
+func TestPoolSaveUsesSelectedCurrentPool(t *testing.T) {
+	model := startedTestModel()
+	model.diffReady = true
+	model.currentReady = true
+	model.tableView = tableViewCurrent
+	model.currentEntries = []protocol.Entry{
+		{Address: 0x1000, Size: 0x100, Tag: protocol.PoolTag("OLD1")},
+		{Address: 0x2000, Size: 0x200, Tag: protocol.PoolTag("CURR")},
+	}
+	model.selected = 1
+
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	if cmd == nil {
+		t.Fatalf("expected p to save the selected current pool")
+	}
+	got := updated.(Model)
+	if got.busy != "saving selected pool" {
+		t.Fatalf("busy mismatch: got %q", got.busy)
+	}
+	if !containsLog(got.logs, "pool save requested: 0x0000000000002000") {
+		t.Fatalf("pool save log missing: %#v", got.logs)
+	}
+}
+
+func TestReadPoolDumpChunksAndMarksTruncated(t *testing.T) {
+	previous := readContent
+	previousMax := maxPoolDumpBytes
+	defer func() {
+		readContent = previous
+		maxPoolDumpBytes = previousMax
+	}()
+
+	maxPoolDumpBytes = protocol.MaxReadLength*2 + 2
+	var calls []uint64
+	readContent = func(address uint64, offset uint64, length uint32) ([]byte, error) {
+		if address != 0x2000 {
+			t.Fatalf("address mismatch: got 0x%X", address)
+		}
+		calls = append(calls, offset)
+		return make([]byte, length), nil
+	}
+
+	entry := protocol.Entry{Address: 0x2000, Size: maxPoolDumpBytes + 1}
+	data, requestedLength, truncated, err := readPoolDump(entry)
+	if err != nil {
+		t.Fatalf("readPoolDump returned error: %v", err)
+	}
+	if requestedLength != entry.Size || !truncated {
+		t.Fatalf("metadata mismatch: requested=%d truncated=%t", requestedLength, truncated)
+	}
+	if len(data) == 0 {
+		t.Fatalf("expected dump data")
+	}
+	if uint64(len(data)) != maxPoolDumpBytes {
+		t.Fatalf("dump length mismatch: got %d, want %d", len(data), maxPoolDumpBytes)
+	}
+	if !slices.Equal(calls[:2], []uint64{0, protocol.MaxReadLength}) {
+		t.Fatalf("chunk offsets mismatch: %#v", calls[:2])
+	}
+}
+
+func TestReadPoolDumpKeepsPartialDataAfterLaterReadFailure(t *testing.T) {
+	previous := readContent
+	defer func() {
+		readContent = previous
+	}()
+
+	readContent = func(address uint64, offset uint64, length uint32) ([]byte, error) {
+		if offset != 0 {
+			return nil, errors.New("page no longer readable")
+		}
+		return []byte{1, 2, 3}, nil
+	}
+
+	data, _, truncated, err := readPoolDump(protocol.Entry{Address: 0x3000, Size: 0x2000})
+	if err != nil {
+		t.Fatalf("readPoolDump returned error: %v", err)
+	}
+	if !truncated || !slices.Equal(data, []byte{1, 2, 3}) {
+		t.Fatalf("partial dump mismatch: truncated=%t data=%#v", truncated, data)
 	}
 }
 

@@ -46,6 +46,11 @@ const (
 	sortPagesDesc
 )
 
+var (
+	maxPoolDumpBytes = uint64(64 * 1024 * 1024)
+	readContent      = device.ReadContent
+)
+
 type Model struct {
 	width            int
 	height           int
@@ -156,6 +161,13 @@ type exportMsg struct {
 type saveDumpMsg struct {
 	path string
 	err  error
+}
+
+type savePoolDumpMsg struct {
+	path      string
+	bytes     int
+	truncated bool
+	err       error
 }
 
 type pteMsg struct {
@@ -554,6 +566,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.beginCommand("saving dump", "dump save requested")
 			return m, saveDumpCmd(m.exportDir, m.dumpEntry, m.dumpOffset, m.dumpData)
+		case key == "p":
+			if !m.hasDiffSnapshot() {
+				m.addLog("pool save skipped: capture current first")
+				return m, nil
+			}
+			visible := m.visibleTable()
+			if len(visible) == 0 {
+				m.addLog("pool save skipped: no table entry selected")
+				return m, nil
+			}
+			entry := visible[m.selected]
+			m.beginCommand("saving selected pool", fmt.Sprintf("pool save requested: 0x%016X", entry.Address))
+			return m, savePoolDumpCmd(m.exportDir, entry)
 		}
 	case statusMsg:
 		wasRefreshing := m.busy == "refreshing"
@@ -726,6 +751,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.addLog("dump save failed: " + friendlyError(msg.err))
 		} else {
 			m.addLog("dump saved: " + msg.path)
+		}
+		return m, nil
+	case savePoolDumpMsg:
+		m.busy = ""
+		if msg.err != nil {
+			m.addLog("pool save failed: " + friendlyError(msg.err))
+		} else if msg.truncated {
+			m.addLog(fmt.Sprintf("pool saved: %s (%d bytes, truncated)", msg.path, msg.bytes))
+		} else {
+			m.addLog(fmt.Sprintf("pool saved: %s (%d bytes)", msg.path, msg.bytes))
 		}
 		return m, nil
 	case shutdownMsg:
@@ -989,6 +1024,60 @@ func saveDumpCmd(dir string, entry protocol.Entry, offset uint64, data []byte) t
 	}
 }
 
+func savePoolDumpCmd(dir string, entry protocol.Entry) tea.Cmd {
+	return func() tea.Msg {
+		data, requestedLength, truncated, err := readPoolDump(entry)
+		if err != nil {
+			return savePoolDumpMsg{err: err}
+		}
+
+		path, err := exporter.SavePoolDump(dir, entry, 0, data, requestedLength, truncated)
+		return savePoolDumpMsg{path: path, bytes: len(data), truncated: truncated, err: err}
+	}
+}
+
+func readPoolDump(entry protocol.Entry) ([]byte, uint64, bool, error) {
+	requestedLength := entry.Size
+	length := requestedLength
+	truncated := false
+	if length > maxPoolDumpBytes {
+		length = maxPoolDumpBytes
+		truncated = true
+	}
+	if length == 0 {
+		return nil, requestedLength, truncated, fmt.Errorf("selected pool has zero length")
+	}
+
+	data := make([]byte, 0, int(minUint64(length, protocol.MaxReadLength)))
+	for offset := uint64(0); offset < length; {
+		chunkLength := minUint64(length-offset, protocol.MaxReadLength)
+		chunk, err := readContent(entry.Address, offset, uint32(chunkLength))
+		if err != nil {
+			if len(data) > 0 {
+				return data, requestedLength, true, nil
+			}
+			return nil, requestedLength, truncated, err
+		}
+		if len(chunk) == 0 {
+			break
+		}
+		if uint64(len(chunk)) > chunkLength {
+			return nil, requestedLength, truncated, fmt.Errorf("read returned %d bytes for %d-byte request", len(chunk), chunkLength)
+		}
+
+		data = append(data, chunk...)
+		offset += uint64(len(chunk))
+	}
+	if len(data) == 0 {
+		return nil, requestedLength, truncated, fmt.Errorf("selected pool returned no readable bytes")
+	}
+	if uint64(len(data)) < requestedLength {
+		truncated = true
+	}
+
+	return data, requestedLength, truncated, nil
+}
+
 func shutdownCmd() tea.Cmd {
 	return func() tea.Msg {
 		var result scm.UnloadResult
@@ -1034,7 +1123,7 @@ func renderHelp(m Model) string {
 	if m.hasDriverStarted() && m.hasDiffSnapshot() {
 		analysisLine := []string{}
 		if len(m.visibleTable()) > 0 {
-			analysisLine = append(analysisLine, "[up/down] select", "[enter/x] dump bytes", "[d] page details")
+			analysisLine = append(analysisLine, "[up/down] select", "[enter/x] dump bytes", "[p] save pool", "[d] page details")
 		}
 		analysisLine = append(analysisLine, "[pgup/pgdn] scroll", "[home/end] jump")
 		if len(m.visibleSearch()) > 0 {
@@ -2076,6 +2165,13 @@ func clampSelection(selected int, length int) int {
 		return 0
 	}
 	return selected
+}
+
+func minUint64(left uint64, right uint64) uint64 {
+	if left < right {
+		return left
+	}
+	return right
 }
 
 func findEntryIndex(entries []protocol.Entry, address uint64) int {

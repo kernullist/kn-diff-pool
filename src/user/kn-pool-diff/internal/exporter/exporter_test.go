@@ -79,6 +79,35 @@ func TestSaveDumpWritesBinaryAndMetadata(t *testing.T) {
 	}
 }
 
+func TestSavePoolDumpWritesBinaryAndMetadata(t *testing.T) {
+	dir := t.TempDir()
+	entry := protocol.Entry{Address: 0x2000, Size: 0x1000, Tag: protocol.PoolTag("FULL")}
+	path, err := SavePoolDump(dir, entry, 0, []byte{1, 2, 3, 4}, entry.Size, true)
+	if err != nil {
+		t.Fatalf("SavePoolDump returned error: %v", err)
+	}
+	if filepath.Dir(path) != dir {
+		t.Fatalf("pool dump dir mismatch: got %q, want %q", filepath.Dir(path), dir)
+	}
+
+	metaData, err := os.ReadFile(strings.TrimSuffix(path, ".bin") + ".json")
+	if err != nil {
+		t.Fatalf("pool dump metadata missing: %v", err)
+	}
+	var meta struct {
+		RequestedLength uint64 `json:"requested_length"`
+		BytesWritten    int    `json:"bytes_written"`
+		Truncated       bool   `json:"truncated"`
+		BinaryFile      string `json:"binary_file"`
+	}
+	if err := json.Unmarshal(metaData, &meta); err != nil {
+		t.Fatalf("Unmarshal returned error: %v", err)
+	}
+	if meta.RequestedLength != entry.Size || meta.BytesWritten != 4 || !meta.Truncated || meta.BinaryFile != filepath.Base(path) {
+		t.Fatalf("pool dump metadata mismatch: %#v", meta)
+	}
+}
+
 func TestDefaultDirUsesExecutableDirectory(t *testing.T) {
 	exe := filepath.Join(t.TempDir(), "kn-pool-diff.exe")
 	defer setExecutablePathForTest(func() (string, error) {

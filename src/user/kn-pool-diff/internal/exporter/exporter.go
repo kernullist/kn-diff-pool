@@ -155,6 +155,52 @@ func SaveDump(dir string, entry protocol.Entry, offset uint64, data []byte) (str
 	return binPath, nil
 }
 
+func SavePoolDump(dir string, entry protocol.Entry, offset uint64, data []byte, requestedLength uint64, truncated bool) (string, error) {
+	if len(data) == 0 {
+		return "", fmt.Errorf("no pool dump data to save")
+	}
+
+	dir, err := ensureExportDir(dir)
+	if err != nil {
+		return "", err
+	}
+
+	stamp := time.Now().Format("20060102_150405")
+	base := fmt.Sprintf("knpool_full_%016X_%X_%s", entry.Address, offset, stamp)
+	binPath := filepath.Join(dir, base+".bin")
+	if err := os.WriteFile(binPath, data, 0600); err != nil {
+		return "", err
+	}
+
+	metaPath := filepath.Join(dir, base+".json")
+	meta := struct {
+		CreatedAt       time.Time      `json:"created_at"`
+		Entry           protocol.Entry `json:"entry"`
+		Offset          uint64         `json:"offset"`
+		RequestedLength uint64         `json:"requested_length"`
+		BytesWritten    int            `json:"bytes_written"`
+		Truncated       bool           `json:"truncated"`
+		BinaryFile      string         `json:"binary_file"`
+	}{
+		CreatedAt:       time.Now(),
+		Entry:           entry,
+		Offset:          offset,
+		RequestedLength: requestedLength,
+		BytesWritten:    len(data),
+		Truncated:       truncated,
+		BinaryFile:      filepath.Base(binPath),
+	}
+	metaData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(metaPath, metaData, 0600); err != nil {
+		return "", err
+	}
+
+	return binPath, nil
+}
+
 func entryRecord(kind string, entry protocol.Entry, offset uint64) []string {
 	return []string{
 		"big_pool",
