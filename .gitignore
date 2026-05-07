@@ -33,3 +33,6 @@ coverage.out
 exports/
 *.dmp
 *.dump
+
+# Local reference material
+ref/

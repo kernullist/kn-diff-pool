@@ -1,7 +1,5 @@
 # KN Diff Pool
 
-[한국어 README](README_kor.md)
-
 Windows kernel Big Pool snapshot/diff tool with a kernel-mode driver and a Go TUI.
 
 KN Diff Pool captures a baseline snapshot of Windows kernel Big Pool allocations, captures another snapshot later, and shows allocations that are newly visible compared with the baseline. It can inspect pool metadata, dump readable bytes, search pool content, view page-level PTE summaries, filter/sort results, and export analysis data.
@@ -36,10 +34,6 @@ This tool is a **Big Pool snapshot/diff** tool, not a complete kernel pool alloc
 ## Repository Layout
 
 ```text
-ref/
-  pool_finder.cpp          Original Big Pool scanning POC
-  pte.cpp                  Original PTE inspection POC
-
 src/
   shared/
     kn_diff_protocol.h     Shared IOCTL protocol and structs for the driver
@@ -279,10 +273,6 @@ KN Diff Pool은 기준점이 되는 Windows 커널 Big Pool 스냅샷을 캡쳐�
 ## 디렉터리 구조
 
 ```text
-ref/
-  pool_finder.cpp          초기 Big Pool 스캔 POC
-  pte.cpp                  초기 PTE 확인 POC
-
 src/
   shared/
     kn_diff_protocol.h     드라이버/유저모드 공유 IOCTL 프로토콜
