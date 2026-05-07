@@ -240,5 +240,6 @@ This project reads kernel memory through a custom kernel driver. Treat it as sen
 - Do not run on production systems until the driver has been reviewed, signed, and validated for the target OS builds.
 - Expect OS-specific behavior around Big Pool enumeration and PTE interpretation.
 - Do not assume results are forensic-grade. They are useful for investigation and debugging, but live kernel memory can change under the tool.
+- You can use a test signed driver and exe from 'Release'
 
 ---
